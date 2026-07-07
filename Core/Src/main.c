@@ -23,6 +23,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdint.h>
+#include "wizchip_conf.h"
+#include "socket.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -53,6 +56,8 @@ TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+
+// Sine look up table
 uint32_t Wave_LUT[NS] = {
     2048, 2149, 2250, 2350, 2450, 2549, 2646, 2742, 2837, 2929, 3020, 3108, 3193, 3275, 3355,
     3431, 3504, 3574, 3639, 3701, 3759, 3812, 3861, 3906, 3946, 3982, 4013, 4039, 4060, 4076,
@@ -64,6 +69,30 @@ uint32_t Wave_LUT[NS] = {
     234, 283, 336, 394, 456, 521, 591, 664, 740, 820, 902, 987, 1075, 1166, 1258,
     1353, 1449, 1546, 1645, 1745, 1845, 1946, 2047
 };
+
+#define UDP_SOCKET     0
+#define LOCAL_PORT     5000
+
+// Define CS pin control wrappers
+void W5500_Select(void) {
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
+}
+
+// Defining CS pin control wrappers
+void W5500_Unselect(void) {
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
+}
+
+// SPI Read/Write Byte Wrappers
+uint8_t W5500_ReadByte(void) {
+	uint8_t rb;
+	HAL_SPI_Receive(&hspi1, &rb, 1, HAL_MAX_DELAY);
+	return rb;
+}
+
+void W5500_WriteByte(uint8_t wb) {
+	HAL_SPI_Transmit(&hspi1, &wb, 1, HAL_MAX_DELAY);
+}
 
 /* USER CODE END PV */
 
@@ -124,12 +153,49 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_1, (uint32_t*)Wave_LUT, 128, DAC_ALIGN_12B_R);
   HAL_TIM_Base_Start(&htim2);
+
+  // 1. Link SPI functions to WIZnet driver
+    reg_wizchip_cs_cbfunc(W5500_Select, W5500_Unselect);
+    reg_wizchip_spi_cbfunc(W5500_ReadByte, W5500_WriteByte);
+
+    // 2. Allocate 2KB buffer size for each of the 8 sockets
+    uint8_t buf_size[] = {2, 2, 2, 2, 2, 2, 2, 2};
+    wizchip_init(buf_size, buf_size);
+
+    // 3. Define Network Parameters
+    wiz_NetInfo net_info = {
+        .mac = {0x00, 0x08, 0xDC, 0x11, 0x22, 0x33},
+        .ip  = {192, 168, 1, 150},
+        .sn  = {255, 255, 255, 0},
+        .gw  = {192, 168, 1, 1},
+        .dhcp = NETINFO_STATIC
+    };
+    wizchip_setnetinfo(&net_info);
+
+    // 4. Set up target destination details
+    uint8_t target_ip[4] = {192, 168, 1, 100};
+    uint16_t target_port = 8080;
+    uint8_t msg[] = "Hello World via UDP!";
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  // Execute sending routine
+	      uint8_t socket_status = getSn_SR(UDP_SOCKET);
+
+	      if (socket_status == SOCK_CLOSED) {
+	          socket(UDP_SOCKET, Sn_MR_UDP, LOCAL_PORT, 0);
+	      }
+
+	      if (getSn_SR(UDP_SOCKET) == SOCK_UDP) {
+	          sendto(UDP_SOCKET, msg, sizeof(msg) - 1, target_ip, target_port);
+	      }
+
+	      HAL_Delay(1000); // Wait 1 second
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
