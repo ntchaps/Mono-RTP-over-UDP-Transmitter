@@ -85,18 +85,6 @@ The next major step is adding RTP-style packet headers, including:
 
 Adding these fields will make the packets easier to inspect, sequence, and eventually play back as a real-time audio stream.
 
-## Development Plan
-
-The project is being built in stages:
-
-* [x] Generate a known test signal on the STM32
-* [x] Send basic UDP packets through the W5500
-* [ ] Improve packet timing and consistency
-* [ ] Add RTP header generation
-* [ ] Verify packets with Wireshark
-* [ ] Test PC-side receiving and playback
-* [ ] Replace the test signal with real audio input
-
 ## What This Project Demonstrates
 
 This project shows practical work with:
