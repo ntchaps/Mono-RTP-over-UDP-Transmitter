@@ -1,1 +1,15 @@
-/Debug/
+# Build output
+Debug/
+Release/
+build/
+*.o
+*.obj
+*.d
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.lst
+*.su
+*.cyclo
