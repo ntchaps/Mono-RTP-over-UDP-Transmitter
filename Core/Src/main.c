@@ -25,6 +25,8 @@
 #include <stdint.h>
 #include "wizchip_conf.h"
 #include "socket.h"
+#include <stdio.h>
+#include <string.h>
 
 /* USER CODE END Includes */
 
@@ -75,12 +77,12 @@ uint32_t Wave_LUT[NS] = {
 
 // Define CS pin control wrappers
 void W5500_Select(void) {
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
 }
 
 // Defining CS pin control wrappers
 void W5500_Unselect(void) {
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
 }
 
 // SPI Read/Write Byte Wrappers
@@ -172,8 +174,18 @@ int main(void)
     };
     wizchip_setnetinfo(&net_info);
 
+    wiz_NetInfo check_info;
+    wizchip_getnetinfo(&check_info);
+
+    char uart_buf[128];
+    sprintf(uart_buf, "W5500 IP: %d.%d.%d.%d\r\n",
+            check_info.ip[0], check_info.ip[1],
+            check_info.ip[2], check_info.ip[3]);
+
+    HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, strlen(uart_buf), HAL_MAX_DELAY);
+
     // 4. Set up target destination details
-    uint8_t target_ip[4] = {192, 168, 1, 100};
+    uint8_t target_ip[4] = {192, 168, 1, 101};
     uint16_t target_port = 8080;
     uint8_t msg[] = "Hello World via UDP!";
 
@@ -494,7 +506,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
