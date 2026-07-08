@@ -2,7 +2,7 @@
 
 **Progress**:  
   - [x] Internal sine wave generator  
-  - [ ] Send plain UDP test packets from STM32 through W5500   
+  - [x] Send plain UDP test packets from STM32 through W5500   
   - [ ] Send fixed-size packets every 1 ms  
   - [ ] RTP header generator  
   - [ ] Verify in Wireshark  
