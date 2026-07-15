@@ -1,10 +1,15 @@
+# =========================
 # Build output
+# =========================
 Debug/
 Release/
 build/
+Build/
+.settings/
+
+# Compiled objects / binaries
 *.o
 *.obj
-*.d
 *.elf
 *.bin
 *.hex
@@ -13,3 +18,47 @@ build/
 *.lst
 *.su
 *.cyclo
+*.d
+*.dep
+*.launch
+
+# =========================
+# Generated documentation
+# =========================
+html/
+latex/
+man/
+
+# =========================
+# OS files
+# =========================
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# =========================
+# Editor / temporary files
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*.log
+*.tmp
+*.bak
