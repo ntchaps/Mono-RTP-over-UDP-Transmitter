@@ -9,7 +9,6 @@
 #define SRC_NETWORK_H_
 
 void Network_Init(void);
-void Network_SendTestPacket(void);
 
 #endif /* SRC_NETWORK_H_ */
 

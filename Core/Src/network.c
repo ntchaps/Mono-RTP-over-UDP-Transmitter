@@ -6,23 +6,12 @@
  */
 
 #include "network.h"
+
 #include "w5500_port.h"
 #include "debug_uart.h"
-
 #include "wizchip_conf.h"
-#include "socket.h"
 
 #include <stdint.h>
-#include <string.h>
-#include <stdio.h>
-
-#define UDP_SOCKET     0
-#define LOCAL_PORT     5000
-
-// Set up target destination details
-static uint8_t target_ip[4] = {192, 168, 1, 101};
-static uint16_t target_port = 8080;
-static uint8_t msg[] = "Hello World via UDP! Refactor Complete!"; 
 
 void Network_Init(void)
 {
@@ -46,21 +35,10 @@ void Network_Init(void)
     wizchip_getnetinfo(&check_info);  
 
     Debug_Printf("W5500 IP: %d.%d.%d.%d\r\n",
-            check_info.ip[0], check_info.ip[1],
-            check_info.ip[2], check_info.ip[3]);  
+        check_info.ip[0], 
+        check_info.ip[1],
+        check_info.ip[2], 
+        check_info.ip[3]
+    );  
 }
 
-void Network_SendTestPacket(void)
-{
-    uint8_t socket_status = getSn_SR(UDP_SOCKET);
-
-    if (socket_status == SOCK_CLOSED)
-    {
-        socket(UDP_SOCKET, Sn_MR_UDP, LOCAL_PORT, 0);
-    }
-
-    if (getSn_SR(UDP_SOCKET) == SOCK_UDP)
-    {
-        sendto(UDP_SOCKET, msg, sizeof(msg) - 1, target_ip, target_port);
-    }
-}

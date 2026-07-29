@@ -1,235 +1,277 @@
-# Architecture
+# Firmware Architecture
 
-This document explains the current structure of the Mono RTP over UDP Transmitter project.
+This document describes how the custom firmware is organized and how data moves through the project.
 
-The project has been refactored so that `main.c` stays focused on STM32 startup code, while the project-specific logic lives in separate application files. This makes the firmware easier to read, debug, and expand as the project moves from basic UDP transmission toward RTP-based mono audio streaming.
-
-## Overview
-
-The project uses an **STM32 Nucleo-F446RE** with a **W5500 Ethernet module**.
-
-The STM32 generates or prepares audio data, formats it into packets, and sends it to the W5500 over SPI. The W5500 handles the Ethernet and UDP transmission.
-
-```text
-Audio source
-    |
-    | current: generated sine wave / test data
-    | future: external audio ADC
-    v
-STM32 Nucleo-F446RE
-    |
-    | packet formatting / timing
-    v
-W5500 Ethernet Module
-    |
-    | UDP over Ethernet
-    v
-PC receiver / Wireshark
-```
-
-## Design Goals
-
-The refactor was done to:
-
-* Keep `main.c` simple
-* Keep STM32CubeMX-generated code mostly untouched
-* Move project-specific logic into separate modules
-* Make the code easier to debug
-* Make future RTP and real audio input support easier to add
-
-## Current Firmware Flow
-
-`main.c` now acts mostly as the firmware entry point.
-
-The intended flow is:
-
-```text
-main.c
-  |
-  |-- HAL_Init()
-  |-- SystemClock_Config()
-  |-- CubeMX peripheral init
-  |
-  |-- App_Init()
-  |
-  v
-while (1)
-  |
-  v
-App_Run()
-```
-
-This keeps startup code separate from the main project behavior.
+The main goal of the refactor is to keep hardware control, networking, audio, and application logic in separate modules.
 
 ## Current File Structure
 
 ```text
 Core/
 ├── Inc/
-│   ├── main.h
 │   ├── app.h
-│   └── ...
+│   ├── audio.h
+│   ├── audio_sine.h
+│   ├── debug_uart.h
+│   ├── network.h
+│   ├── udp_stream.h
+│   └── w5500_port.h
 │
-├── Src/
-│   ├── main.c
-│   ├── app.c
-│   └── ...
+└── Src/
+    ├── app.c
+    ├── audio.c
+    ├── audio_sine.c
+    ├── debug_uart.c
+    ├── main.c
+    ├── network.c
+    ├── udp_stream.c
+    └── w5500_port.c
 ```
 
-## Module Roles
+STM32CubeMX-generated files remain in their normal locations.
+
+## Module Responsibilities
 
 ### `main.c`
 
-Handles STM32 startup and generated initialization code.
+Handles STM32 startup and CubeMX-generated peripheral initialization.
 
-This file is responsible for:
-
-* HAL initialization
-* Clock configuration
-* CubeMX-generated peripheral initialization
-* Calling `App_Init()`
-* Calling `App_Run()` inside the main loop
-
-Most project-specific behavior should stay out of `main.c`.
+After initialization, it calls the application module.
 
 ### `app.c` / `app.h`
 
-Controls the main application logic.
+Controls the top-level application flow.
 
-This module is responsible for:
+It initializes the custom modules and decides when data should be generated or transmitted.
 
-* Project-specific initialization
-* W5500 setup
-* UDP transmit behavior
-* Main application loop behavior
-* Keeping the custom firmware logic separate from generated STM32 code
+Temporary test packets also belong here.
 
-As the project grows, more logic can be moved out of `app.c` into smaller modules.
+### `audio.c` / `audio.h`
 
-## Planned Module Split
+Controls the audio peripherals.
 
-The current refactor created the main application layer. Future cleanup can split the application code into more focused modules.
+This includes:
 
-Possible future files:
-
-```text
-Core/
-├── Inc/
-│   ├── audio_sine.h
-│   ├── udp_stream.h
-│   ├── rtp_packet.h
-│   └── w5500_port.h
-│
-├── Src/
-│   ├── audio_sine.c
-│   ├── udp_stream.c
-│   ├── rtp_packet.c
-│   └── w5500_port.c
-```
-
-## Future Module Roles
+* Starting the DAC
+* Starting DMA
+* Starting the sample timer
+* Selecting the audio sample buffer
 
 ### `audio_sine.c` / `audio_sine.h`
 
-Would handle generated test audio data.
+Stores the sine-wave lookup table used for testing.
 
-This module would be responsible for:
+Keeping the lookup table in its own module separates test sample data from DAC and DMA control.
 
-* Creating sine wave sample data
-* Filling audio buffers
-* Providing predictable test data before real audio input is added
+### `network.c` / `network.h`
+
+Configures the W5500 network interface.
+
+This includes:
+
+* W5500 initialization
+* Socket memory allocation
+* MAC address
+* Local IP address
+* Subnet mask
+* Gateway
+
+This module describes the transmitter's local network configuration.
 
 ### `udp_stream.c` / `udp_stream.h`
 
-Would handle UDP transmission.
+Manages the UDP socket used for transmission.
 
-This module would be responsible for:
+This includes:
 
-* Destination IP and port configuration
-* UDP socket setup
-* Sending packet buffers through the W5500
+* W5500 socket selection
+* Local UDP port
+* Destination IP address
+* Destination UDP port
+* Socket initialization
+* Packet transmission
 
-### `rtp_packet.c` / `rtp_packet.h`
-
-Would handle RTP packet formatting.
-
-This module would be responsible for:
-
-* RTP sequence numbers
-* RTP timestamps
-* Payload type
-* SSRC
-* Combining RTP headers with audio payload data
+The module accepts arbitrary packet buffers, allowing it to send test data now and RTP packets later.
 
 ### `w5500_port.c` / `w5500_port.h`
 
-Would isolate the W5500 hardware interface.
+Connects the Wiznet ioLibrary to the STM32 HAL.
 
-This module would be responsible for:
+This includes:
 
-* SPI read/write callbacks
-* Chip select control
-* W5500 reset logic if needed
-* Connecting the W5500 library to STM32 HAL functions
+* SPI communication
+* Chip-select control
+* W5500 reset control
+* Wiznet callback registration
 
-## Data Flow
+### `debug_uart.c` / `debug_uart.h`
 
-The current and planned data flow is:
+Provides UART debug output.
+
+This keeps UART-specific code separate from the application and networking modules.
+
+## Current Data Flow
+
+The current audio test path is:
 
 ```text
-audio/test data
-    |
-    v
-application logic
-    |
-    v
-UDP packet buffer
-    |
-    v
-W5500 over SPI
-    |
-    v
-Ethernet / UDP
-    |
-    v
-PC receiver or Wireshark
+audio_sine
+    ↓
+audio
+    ↓
+DAC + DMA
+    ↓
+Analog output
 ```
 
-Once RTP support is added, the flow will become:
+The current UDP test path is:
 
 ```text
-audio/test data
-    |
-    v
+app
+    ↓
+udp_stream
+    ↓
+Wiznet socket API
+    ↓
+w5500_port
+    ↓
+W5500
+    ↓
+PC receiver
+```
+
+The audio output and UDP test paths are currently separate.
+
+## Planned RTP Data Flow
+
+The planned audio transmission path is:
+
+```text
+Audio samples
+    ↓
 RTP packet builder
-    |
-    v
-UDP sender
-    |
-    v
-W5500 over SPI
-    |
-    v
-PC receiver or Wireshark
+    ↓
+udp_stream
+    ↓
+W5500
+    ↓
+PC receiver
 ```
+
+A future `rtp_packet.c` and `rtp_packet.h` module will create RTP packets before passing them to `UDP_Stream_Send()`.
+
+## Planned RTP Module
+
+### `rtp_packet.c` / `rtp_packet.h`
+
+Will format audio samples as RTP packets.
+
+This will include:
+
+* RTP header creation
+* Sequence number tracking
+* Timestamp tracking
+* Payload type
+* SSRC
+* Audio payload placement
+
+The completed RTP packet will be passed to the UDP stream module.
+
+## Module Dependencies
+
+```text
+main
+  └── app
+      ├── audio
+      │   └── audio_sine
+      ├── network
+      │   └── w5500_port
+      ├── udp_stream
+      └── debug_uart
+```
+
+`udp_stream` uses the Wiznet socket API, which communicates with the W5500 through callbacks registered by `w5500_port`.
+
+## Configuration Ownership
+
+### `network.c`
+
+Owns:
+
+* Local MAC address
+* Local IP address
+* Subnet mask
+* Gateway
+* W5500 socket memory configuration
+
+### `udp_stream.c`
+
+Owns:
+
+* Socket number
+* Local UDP port
+* Destination IP address
+* Destination UDP port
+
+### `audio_sine.c`
+
+Owns:
+
+* Sine-wave lookup table
+* Lookup-table length
+
+### Future `rtp_packet.c`
+
+Will own:
+
+* RTP sequence number
+* RTP timestamp
+* Payload type
+* SSRC
 
 ## Refactor Status
 
+* [x] Move application logic out of `main.c`
 * [x] Create `app.c` and `app.h`
-* [x] Move application-level flow out of `main.c`
-* [x] Keep `main.c` focused on startup and initialization
-* [ ] Split W5500 setup into its own module
-* [ ] Split UDP sending into its own module
-* [ ] Split sine wave generation into its own module
-* [ ] Add RTP packet builder module
-* [ ] Add real audio input later
+* [x] Move W5500 hardware access into `w5500_port.c`
+* [x] Move local network configuration into `network.c`
+* [x] Move UDP socket handling into `udp_stream.c`
+* [x] Move DAC and DMA control into `audio.c`
+* [x] Move sine-wave data into `audio_sine.c`
+* [x] Separate UART debugging into `debug_uart.c`
+* [ ] Connect audio samples to the UDP transmit path
+* [ ] Add fixed-rate packet transmission
+* [ ] Create the RTP packet module
+* [ ] Verify RTP packets in Wireshark
+* [ ] Add real audio input
 
-## Main Rule
+## Summary
 
 ```text
-main.c starts the system.
-app.c controls the application.
-future modules should handle audio, UDP, RTP, and W5500 details.
-```
+main.c
+    Starts the firmware
 
-The current refactor is a good first step because it separates generated startup code from custom project behavior. Future refactors can continue breaking `app.c` into smaller modules as the project grows.
+app.c
+    Controls the application
+
+audio.c
+    Controls the audio peripherals
+
+audio_sine.c
+    Stores sine-wave test samples
+
+network.c
+    Configures the local network
+
+udp_stream.c
+    Manages and sends UDP packets
+
+w5500_port.c
+    Communicates with the W5500 hardware
+
+debug_uart.c
+    Provides debug output
+
+rtp_packet.c
+    Will build RTP packets
+```
