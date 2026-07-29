@@ -61,7 +61,7 @@ int32_t UDP_Stream_Send(const uint8_t *data, uint16_t length)
 
     return sendto(
         UDP_STREAM_SOCKET,
-        data,
+        (uint8_t *)data,
         length,
         target_ip,
         target_port
