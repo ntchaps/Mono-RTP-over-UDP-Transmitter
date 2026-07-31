@@ -19,7 +19,7 @@
 #define UDP_STREAM_LOCAL_PORT     5000
 
 // Set up target destination details
-static uint8_t target_ip[4] = {192, 168, 1, 101};
+static uint8_t target_ip[4] = {192, 168, 1, 103};
 static uint16_t target_port = 8080;
 
 void UDP_Stream_Init(void)

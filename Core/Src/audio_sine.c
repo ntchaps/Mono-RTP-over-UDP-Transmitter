@@ -12,6 +12,9 @@ extern TIM_HandleTypeDef htim2;
 
 #define NS 128
 
+/* Current position used for network PCM generation. */
+static size_t network_sine_index = 0U;
+
 // Sine look up table
 static uint32_t Wave_LUT[NS] = {
     2048, 2149, 2250, 2350, 2450, 2549, 2646, 2742, 2837, 2929, 3020, 3108, 3193, 3275, 3355,
@@ -27,9 +30,48 @@ static uint32_t Wave_LUT[NS] = {
 
 void Audio_Sine_Init(void) 
 {
+    network_sine_index = 0U;
+
     // Plays Sine LUT on DAC1
     HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_1, (uint32_t*)Wave_LUT, 128, DAC_ALIGN_12B_R);
     HAL_TIM_Base_Start(&htim2);
 
     // fill audio buffers
+}
+
+void Audio_Sine_Generate(int16_t *buffer, size_t sample_count)
+{
+    if (buffer == NULL)
+    {
+        return;
+    }
+
+    for (size_t i = 0U; i < sample_count; i++)
+    {
+        /*
+         * Wave_LUT contains unsigned 12-bit DAC values:
+         *
+         *     0 to 4095
+         *
+         * Subtracting 2048 centers the waveform around zero:
+         *
+         *     approximately -2048 to +2047
+         *
+         * Multiplying by 8 scales it into a useful signed
+         * 16-bit PCM range:
+         *
+         *     approximately -16384 to +16376
+         */
+        int32_t centered_sample =
+            ((int32_t)Wave_LUT[network_sine_index] - 2048) * 8;
+
+        buffer[i] = (int16_t)centered_sample;
+
+        network_sine_index++;
+
+        if (network_sine_index >= NS)
+        {
+            network_sine_index = 0U;
+        }
+    }
 }

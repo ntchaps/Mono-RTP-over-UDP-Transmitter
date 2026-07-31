@@ -10,4 +10,9 @@
 
 void Audio_Sine_Init(void);
 
+void Audio_Sine_Generate(
+    int16_t *buffer,
+    size_t sample_count
+);
+
 #endif /* SRC_AUDIO_SINE_H_ */
