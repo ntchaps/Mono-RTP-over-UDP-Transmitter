@@ -5,6 +5,7 @@
  *      Author: nickt
  */
 #include "main.h"
+#include "audio.h"
 #include "audio_sine.h"
 
 extern DAC_HandleTypeDef hdac;

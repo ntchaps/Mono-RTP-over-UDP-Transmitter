@@ -63,12 +63,6 @@ void App_Init(void)
     RTP_Init();
 
     /*
-     * Use this only if Audio_Init() does not already initialize
-     * the sine-wave generator.
-     */
-    /* Audio_Sine_Init(); */
-
-    /*
      * Schedule the first packet immediately.
      */
     next_send_time = HAL_GetTick();
