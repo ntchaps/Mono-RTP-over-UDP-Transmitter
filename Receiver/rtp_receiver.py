@@ -7,9 +7,19 @@
 
 import socket
 import struct
+import queue
+import threading
 from array import array
 import sys
 import sounddevice as sd
+
+### CONSTANTS ###
+UDP_IP = "0.0.0.0"
+UDP_PORT = 8080
+SAMPLE_RATE = 8000
+RTP_PAYLOAD_TYPE = 96
+RTP_HEADER_SIZE = 12
+PREBUFFER_PACKETS = 5
 
 # converts packet from incoming Big-endian to Little-endian
 def convert_network_pcm(payload):
@@ -24,32 +34,29 @@ def convert_network_pcm(payload):
 
     return samples.tobytes()
 
-# IP packets are sent to (self)
-UDP_IP = "0.0.0.0"
-
-# port to read
-UDP_PORT = 8080
-
 # Opens socket via vars above
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((UDP_IP, UDP_PORT))
 
 print(f"Listening on UDP port {UDP_PORT}")
 
+audio_queue = queue.Queue(maxsize=20)
 expected_sequence = None
 
 # Opens output stream
-stream = sd.RawOutputStream(samplerate=8000, channels=1, dtype="int16")
+stream = sd.RawOutputStream(SAMPLE_RATE, channels=1, dtype="int16")
 stream.start()
 
-try:
+def receive_audio():
+    global expected_sequence
+
     # Packet receiving loop
     while True:
         # receive from port 8080
         packet, sender = sock.recvfrom(2048)
 
         # Error if packet length < 12
-        if len(packet) < 12:
+        if len(packet) < RTP_HEADER_SIZE:
             print("Packet is too short to be RTP")
             continue
 
@@ -59,10 +66,9 @@ try:
             packet[:12]
         )
 
-
         version = first_byte >> 6
         payload_type = second_byte & 0x7F
-        audio_payload = packet[12:]
+        audio_payload = packet[RTP_HEADER_SIZE:]
 
         ### Error Messages
         if version != 2:
@@ -88,11 +94,43 @@ try:
             f"Audio payload: {len(audio_payload)} bytes"
         )
 
-        # Convert RTP samples from big to little endian
-        pcm_audio = convert_network_pcm(audio_payload)
+        try:
+            # Convert RTP samples from big to little endian
+            pcm_audio = convert_network_pcm(audio_payload)
+        except ValueError as error:
+            print(f"Ignoring invalid payload: {error}")
+            continue
 
-        # write the samples to the output audio stream
+        try:
+            audio_queue.put(pcm_audio, timeout=0.05)
+        except queue.Full:
+            print("Audio queue full; dropping packet")
+
+receiver_thread = threading.Thread(target=receive_audio, daemon=True)
+receiver_thread.start()
+
+stream = sd.RawOutputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16")
+stream.start()
+
+print(f"Listening on UDP port {UDP_PORT}")
+print(f"Buffering {PREBUFFER_PACKETS} packets before playback")
+print("Press Ctrl+C to stop")
+
+try:
+    buffered_packets = []
+
+    for _ in range(PREBUFFER_PACKETS):
+        buffered_packets.append(audio_queue.get())
+
+    print("Playback started")
+
+    for pcm_audio in buffered_packets:
         stream.write(pcm_audio)
+
+    while True:
+        pcm_audio = audio_queue.get()
+        stream.write(pcm_audio)
+
 except KeyboardInterrupt:
     print("\nStopping RTP receiver")
 
