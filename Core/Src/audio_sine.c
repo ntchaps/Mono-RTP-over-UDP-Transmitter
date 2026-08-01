@@ -37,7 +37,6 @@ void Audio_Sine_Init(void)
     HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_1, (uint32_t*)Wave_LUT, 128, DAC_ALIGN_12B_R);
     HAL_TIM_Base_Start(&htim2);
 
-    // fill audio buffers
 }
 
 void Audio_Sine_Generate(int16_t *buffer, size_t sample_count)

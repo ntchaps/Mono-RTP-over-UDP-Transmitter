@@ -8,7 +8,7 @@
 #include "rtp.h"
 #include "udp_stream.h"
 
-#define RTP_MAX_SAMPLES_PER_PACKET  160U
+#define RTP_MAX_SAMPLES_PER_PACKET  480U
 #define RTP_MAX_PAYLOAD_SIZE        \
     (RTP_MAX_SAMPLES_PER_PACKET * sizeof(int16_t))
 

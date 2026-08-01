@@ -16,10 +16,10 @@ import sounddevice as sd
 ### CONSTANTS ###
 UDP_IP = "0.0.0.0"
 UDP_PORT = 8080
-SAMPLE_RATE = 8000
+SAMPLE_RATE = 48000
 RTP_PAYLOAD_TYPE = 96
 RTP_HEADER_SIZE = 12
-PREBUFFER_PACKETS = 5
+PREBUFFER_PACKETS = 5 
 
 # converts packet from incoming Big-endian to Little-endian
 def convert_network_pcm(payload):

@@ -17,14 +17,14 @@
 /*
  * Audio configuration.
  *
- * At an 8 kHz sample rate, 160 samples represent:
+ * At an 48 kHz sample rate, 480 samples represent:
  *
- *     160 / 8000 = 0.020 seconds
+ *     480 / 48000 = 0.010 seconds
  *
- * Therefore, one packet contains 20 ms of audio.
+ * Therefore, one packet contains 10 ms of audio.
  */
-#define AUDIO_SAMPLES_PER_PACKET    160U
-#define AUDIO_PACKET_PERIOD_MS       20U
+#define AUDIO_SAMPLES_PER_PACKET    480U
+#define AUDIO_PACKET_PERIOD_MS       10U
 
 /*
  * Signed 16-bit PCM buffer used to hold one RTP packet's
