@@ -13,6 +13,7 @@
 #include "network.h"
 #include "udp_stream.h" 
 #include "debug_uart.h"
+#include "audio_input.h"
 
 /*
  * Audio configuration.
@@ -39,6 +40,7 @@ static uint32_t next_send_time;
 
 void App_Init(void)
 {
+    
     /*
      * Initialize the audio system.
      *
@@ -48,10 +50,15 @@ void App_Init(void)
     Audio_Init();
 
     /*
+     * Configure the PCM1808 input board.
+     */
+    Audio_Input_Init();
+
+    /*
      * Configure the W5500 network settings.
      */
     Network_Init();
-
+    
     /*
      * Open and configure the UDP socket.
      */
@@ -61,7 +68,7 @@ void App_Init(void)
      * Initialize the RTP sequence number, timestamp, and SSRC.
      */
     RTP_Init();
-
+   
     /*
      * Schedule the first packet immediately.
      */
