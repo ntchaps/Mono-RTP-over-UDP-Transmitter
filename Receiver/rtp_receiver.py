@@ -43,10 +43,6 @@ print(f"Listening on UDP port {UDP_PORT}")
 audio_queue = queue.Queue(maxsize=20)
 expected_sequence = None
 
-# Opens output stream
-stream = sd.RawOutputStream(SAMPLE_RATE, channels=1, dtype="int16")
-stream.start()
-
 def receive_audio():
     global expected_sequence
 
