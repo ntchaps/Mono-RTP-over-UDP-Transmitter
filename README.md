@@ -1,4 +1,4 @@
-# Mono RTP over UDP Transmitter
+# STM32-RTP-Audio-Streamer
 
 A real-time embedded audio streaming project built with an STM32 Nucleo-F446RE, a PCM1808 audio ADC, and a W5500 Ethernet controller.
 
