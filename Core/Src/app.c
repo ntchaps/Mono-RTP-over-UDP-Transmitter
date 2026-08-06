@@ -14,6 +14,11 @@
 #include "debug_uart.h"
 #include "audio_input.h"
 
+volatile int32_t app_last_send_result = -999;
+volatile uint32_t app_send_attempt_count = 0;
+volatile uint32_t app_send_success_count = 0;
+volatile uint32_t app_send_failure_count = 0;
+
 /*
  * Audio configuration.
  *
@@ -26,20 +31,10 @@
 #define AUDIO_SAMPLES_PER_PACKET    480U
 
 /*
-* To use test packets from sine wave LUT.
-*/
-//#define AUDIO_PACKET_PERIOD_MS       10U
-
-/*
  * Signed 16-bit PCM buffer used to hold one RTP packet's
  * worth of sine-wave samples.
  */
 static int16_t audio_packet[AUDIO_SAMPLES_PER_PACKET];
-
-/*
- * Sine wave LUT test time at which the next audio packet should be sent.
- */
-// static uint32_t next_send_time;
 
 static void App_ConvertI2SToMono16(const uint16_t *input, int16_t *output)
 {
@@ -90,42 +85,6 @@ void App_Init(void)
 
 void App_Run(void)
 {
-    // uint32_t current_time;
-
-    // current_time = HAL_GetTick();
-
-    /*
-     * Check whether it is time to send the next 20 ms audio packet.
-     *
-     * The signed subtraction keeps the comparison valid even when
-     * HAL_GetTick() eventually wraps around.
-     */
-    // if ((int32_t)(current_time - next_send_time) >= 0)
-    // {
-        // /*
-        //  * Schedule the next packet relative to the expected send time.
-        //  *
-        //  * Using += instead of assigning current_time prevents gradual
-        //  * timing drift.
-        //  */
-        // next_send_time += AUDIO_PACKET_PERIOD_MS;
-
-        // /*
-        //  * Generate 160 signed 16-bit sine-wave PCM samples.
-        //  */
-        // Audio_Sine_Generate(
-        //     audio_packet,
-        //     AUDIO_SAMPLES_PER_PACKET
-        // );
-
-        // /*
-        //  * Build the RTP header, append the PCM samples,
-        //  * and send the completed packet through UDP.
-        //  */
-        // int32_t result = RTP_SendAudio(
-        //     audio_packet,
-        //     AUDIO_SAMPLES_PER_PACKET
-        // );
     const uint16_t *input_half = NULL;
 
         if (audio_input_first_half_ready != 0U)
@@ -145,7 +104,7 @@ void App_Run(void)
         }
 
     App_ConvertI2SToMono16(input_half, audio_packet);
-
+#if 0
     int32_t result = RTP_SendAudio(
         audio_packet,
         AUDIO_SAMPLES_PER_PACKET
@@ -160,4 +119,19 @@ void App_Run(void)
         /* RTP or UDP send failed. */
         Debug_Printf("RTP or UDP send failed: %ld\r\n", (long)result);
     }
+#endif
+    app_send_attempt_count++;
+
+    app_last_send_result = RTP_SendAudio(audio_packet, AUDIO_SAMPLES_PER_PACKET);
+
+    if (app_last_send_result >= 0)
+    {
+        app_send_success_count++;
+    }
+    else
+    {
+        app_send_failure_count++;
+        Debug_Printf("RTP or UDP send failed: %ld\r\n", (long)app_last_send_result);
+    }
+
 }
