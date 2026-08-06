@@ -29,7 +29,7 @@ void Audio_Input_Init(void)
     audio_input_first_half_ready = 0;
     audio_input_second_half_ready = 0;
 
-    audio_input_start_status = (uint32_t)HAL_I2S_Receive_DMA(&hi2s2, (uint16_t *)audio_input_buffer, AUDIO_INPUT_BUFFER_SIZE);
+    audio_input_start_status = (uint32_t)HAL_I2S_Receive_DMA(&hi2s2, audio_input_buffer, AUDIO_INPUT_BUFFER_SIZE / 2U);
 }
 
 const uint16_t *Audio_Input_GetFirstHalf(void)
