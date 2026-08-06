@@ -20,11 +20,17 @@ volatile uint32_t audio_input_start_status = 0xFFFFFFFFU;
 volatile uint8_t audio_input_first_half_ready = 0U;
 volatile uint8_t audio_input_second_half_ready = 0U;
 
+volatile uint32_t audio_input_first_half_overrun_count = 0;
+volatile uint32_t audio_input_second_half_overrun_count = 0;
+
 void Audio_Input_Init(void)
 {
     audio_input_half_count = 0;
     audio_input_full_count = 0;
     audio_input_error_count = 0;
+
+    audio_input_first_half_overrun_count = 0;
+    audio_input_second_half_overrun_count = 0;
 
     audio_input_first_half_ready = 0;
     audio_input_second_half_ready = 0;

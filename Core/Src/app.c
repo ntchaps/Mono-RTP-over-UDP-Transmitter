@@ -13,11 +13,15 @@
 #include "udp_stream.h" 
 #include "debug_uart.h"
 #include "audio_input.h"
+#include <math.h>
 
 volatile int32_t app_last_send_result = -999;
 volatile uint32_t app_send_attempt_count = 0;
 volatile uint32_t app_send_success_count = 0;
 volatile uint32_t app_send_failure_count = 0;
+
+
+
 
 /*
  * Audio configuration.
@@ -46,7 +50,7 @@ static void App_ConvertI2SToMono16(const uint16_t *input, int16_t *output)
          * Start by selecting the upper 16 bits of the left channel.
          * If the waveform is incorrect, test input_index + 1 instead.
          */
-        output[frame] = (int16_t)input[input_index];
+        output[frame] = (int16_t)input[input_index + 2U];
     }
 }
 
@@ -85,53 +89,65 @@ void App_Init(void)
 
 void App_Run(void)
 {
-    const uint16_t *input_half = NULL;
-
-        if (audio_input_first_half_ready != 0U)
-        {
-            audio_input_first_half_ready = 0U;
-            input_half = Audio_Input_GetFirstHalf();
-        }
-        else if (audio_input_second_half_ready != 0U)
-        {
-            audio_input_second_half_ready = 0U;
-            input_half = Audio_Input_GetSecondHalf();
-        }
-
-        if (input_half == NULL)
-        {
-            return;
-        }
-
-    App_ConvertI2SToMono16(input_half, audio_packet);
-#if 0
-    int32_t result = RTP_SendAudio(
-        audio_packet,
-        AUDIO_SAMPLES_PER_PACKET
-    );
-
-    /*
-        * Add a breakpoint, UART message, or LED indication here
-        * while debugging transmission failures.
-        */
-    if (result < 0)
+    if (audio_input_first_half_ready != 0U)
     {
-        /* RTP or UDP send failed. */
-        Debug_Printf("RTP or UDP send failed: %ld\r\n", (long)result);
-    }
-#endif
-    app_send_attempt_count++;
+        audio_input_first_half_ready = 0U;
 
-    app_last_send_result = RTP_SendAudio(audio_packet, AUDIO_SAMPLES_PER_PACKET);
+        App_ConvertI2SToMono16(
+            Audio_Input_GetFirstHalf(),
+            audio_packet
+        );
 
-    if (app_last_send_result >= 0)
-    {
-        app_send_success_count++;
-    }
-    else
-    {
-        app_send_failure_count++;
-        Debug_Printf("RTP or UDP send failed: %ld\r\n", (long)app_last_send_result);
+        app_send_attempt_count++;
+
+        app_last_send_result = RTP_SendAudio(
+            audio_packet,
+            AUDIO_SAMPLES_PER_PACKET
+        );
+
+        if (app_last_send_result >= 0)
+        {
+            app_send_success_count++;
+        }
+        else
+        {
+            app_send_failure_count++;
+
+            Debug_Printf(
+                "RTP or UDP send failed: %ld\r\n",
+                (long)app_last_send_result
+            );
+        }
     }
 
+    if (audio_input_second_half_ready != 0U)
+    {
+        audio_input_second_half_ready = 0U;
+
+        App_ConvertI2SToMono16(
+            Audio_Input_GetSecondHalf(),
+            audio_packet
+        );
+
+        app_send_attempt_count++;
+
+        app_last_send_result = RTP_SendAudio(
+            audio_packet,
+            AUDIO_SAMPLES_PER_PACKET
+        );
+
+        if (app_last_send_result >= 0)
+        {
+            app_send_success_count++;
+        }
+        else
+        {
+            app_send_failure_count++;
+
+            Debug_Printf(
+                "RTP or UDP send failed: %ld\r\n",
+                (long)app_last_send_result
+            );
+        }
+    }
 }

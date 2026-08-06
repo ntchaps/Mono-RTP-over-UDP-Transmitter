@@ -22,6 +22,9 @@ extern volatile uint32_t audio_input_full_count;
 extern volatile uint32_t audio_input_error_count;
 extern volatile uint32_t audio_input_start_status;
 
+extern volatile uint32_t audio_input_first_half_overrun_count;
+extern volatile uint32_t audio_input_second_half_overrun_count;
+
 extern volatile uint8_t audio_input_first_half_ready;
 extern volatile uint8_t audio_input_second_half_ready;
 

@@ -12,14 +12,18 @@ import threading
 from array import array
 import sys
 import sounddevice as sd
+import wave
+import time
 
 ### CONSTANTS ###
 UDP_IP = "0.0.0.0"
 UDP_PORT = 8080
 SAMPLE_RATE = 48000
-RTP_PAYLOAD_TYPE = 96
+CHANNELS = 1
 RTP_HEADER_SIZE = 12
-PREBUFFER_PACKETS = 5 
+PREBUFFER_PACKETS = 3
+SAMPLE_WIDTH_BYTES = 2
+WAV_FILENAME = "received_audio.wav"
 
 # converts packet from incoming Big-endian to Little-endian
 def convert_network_pcm(payload):
@@ -36,20 +40,43 @@ def convert_network_pcm(payload):
 
 # Opens socket via vars above
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 262144)
 sock.bind((UDP_IP, UDP_PORT))
 
 print(f"Listening on UDP port {UDP_PORT}")
 
-audio_queue = queue.Queue(maxsize=20)
+audio_queue = queue.Queue(maxsize=100)
 expected_sequence = None
 
+received_packets = 0
+sequence_gaps = 0
+minimum_queue = PREBUFFER_PACKETS
+maximum_queue = 0
+last_packet_time = None
+maximum_packet_interval = 0.0
+last_packet_count = 0
+
+wav_file = wave.open(WAV_FILENAME, "wb")
+wav_file.setnchannels(CHANNELS)
+wav_file.setsampwidth(SAMPLE_WIDTH_BYTES)
+wav_file.setframerate(SAMPLE_RATE)
+
 def receive_audio():
-    global expected_sequence
+    global expected_sequence, received_packets, sequence_gaps
+    global last_packet_time, maximum_packet_interval
 
     # Packet receiving loop
     while True:
         # receive from port 8080
         packet, sender = sock.recvfrom(2048)
+
+        packet_time = time.perf_counter()
+
+        if last_packet_time is not None:
+            packet_interval = packet_time - last_packet_time
+            maximum_packet_interval = max(maximum_packet_interval, packet_interval)
+
+        last_packet_time = packet_time
 
         # Error if packet length < 12
         if len(packet) < RTP_HEADER_SIZE:
@@ -76,31 +103,32 @@ def receive_audio():
             continue
 
         if expected_sequence is not None and sequence != expected_sequence:
-            print(f"Sequence gap: expected {expected_sequence}, received {sequence}")
+            sequence_gaps += 1
 
         expected_sequence = (sequence + 1) & 0xFFFF
-
-        # RTP packet printouts
-        print(
-            f"Version={version}, "
-            f"Payload type={payload_type}, "
-            f"Sequence={sequence}, "
-            f"Timestamp={timestamp}, "
-            f"SSRC=0x{ssrc:08X}, " 
-            f"Audio payload: {len(audio_payload)} bytes"
-        )
+        received_packets += 1
 
         try:
             # Convert RTP samples from big to little endian
             pcm_audio = convert_network_pcm(audio_payload)
+
+            #wav_file.writeframesraw(pcm_audio)
         except ValueError as error:
             print(f"Ignoring invalid payload: {error}")
             continue
 
         try:
-            audio_queue.put(pcm_audio, timeout=0.05)
+            audio_queue.put_nowait(pcm_audio)
         except queue.Full:
-            print("Audio queue full; dropping packet")
+            try:
+                audio_queue.get_nowait()
+            except queue.Empty:
+                pass
+            
+            try:
+                audio_queue.put_nowait(pcm_audio)
+            except queue.Full:
+                pass
 
 receiver_thread = threading.Thread(target=receive_audio, daemon=True)
 receiver_thread.start()
@@ -113,19 +141,56 @@ print(f"Buffering {PREBUFFER_PACKETS} packets before playback")
 print("Press Ctrl+C to stop")
 
 try:
-    buffered_packets = []
-
-    for _ in range(PREBUFFER_PACKETS):
-        buffered_packets.append(audio_queue.get())
+    while audio_queue.qsize() < PREBUFFER_PACKETS:
+        time.sleep(0.001)
 
     print("Playback started")
 
-    for pcm_audio in buffered_packets:
-        stream.write(pcm_audio)
+    last_status_time = time.monotonic()
+    last_status_packet_count = received_packets
 
     while True:
-        pcm_audio = audio_queue.get()
+        try:
+            pcm_audio = audio_queue.get(timeout=0.050)
+        except queue.Empty:
+            print("\nPlayback starvation")
+            continue
+
         stream.write(pcm_audio)
+
+        queue_depth = audio_queue.qsize()
+        minimum_queue = min(minimum_queue, queue_depth)
+        maximum_queue = max(maximum_queue, queue_depth)
+
+        current_time = time.monotonic()
+        status_elapsed = current_time - last_status_time
+
+        if status_elapsed >= 1.0:
+            current_packet_count = received_packets
+            packets_received_this_period = (
+                current_packet_count - last_status_packet_count
+            )
+            packets_per_second = (
+                packets_received_this_period / status_elapsed
+            )
+
+            print(
+                f"\rPackets: {current_packet_count} | "
+                f"Rate: {packets_per_second:.1f} packets/s | "
+                f"Gaps: {sequence_gaps} | "
+                f"Queue: {queue_depth} | "
+                f"Range: {minimum_queue}-{maximum_queue} | "
+                f"Max interval: "
+                f"{maximum_packet_interval * 1000:.2f} ms",
+                end="",
+                flush=True
+            )
+
+            last_status_packet_count = current_packet_count
+            last_status_time = current_time
+            maximum_packet_interval = 0.0
+            minimum_queue = queue_depth
+            maximum_queue = queue_depth
 
 except KeyboardInterrupt:
     print("\nStopping RTP receiver")
@@ -133,4 +198,5 @@ except KeyboardInterrupt:
 finally:
     stream.stop()
     stream.close()
+    wav_file.close()
     sock.close()
