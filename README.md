@@ -1,82 +1,96 @@
 # Mono RTP over UDP Transmitter
 
-An embedded audio networking project that streams mono PCM audio from an STM32 Nucleo-F446RE to a PC over Ethernet using RTP over UDP.
+A real-time embedded audio streaming project built with an STM32 Nucleo-F446RE, a PCM1808 audio ADC, and a W5500 Ethernet controller.
 
-The STM32 generates a sine-wave test signal, converts the samples to signed 16-bit PCM, builds RTP packets, and sends them through a W5500 Ethernet controller. A Python receiver listens for the packets, validates the RTP header, converts the network-order PCM samples, and plays the stream through the computer's audio output.
+The STM32 captures digital audio from the PCM1808 over I2S using DMA, converts the incoming stereo sample frames to mono signed 16-bit PCM, places the samples into RTP packets, and sends them to a computer over UDP.
+
+A Python receiver validates the RTP stream, converts the PCM byte order, buffers the packets, and plays the audio through the computer's output device.
 
 ## Project Goals
 
-* Build a real-time mono audio transmitter on an STM32
-* Implement RTP packetization over UDP
-* Interface an STM32 with a W5500 Ethernet controller over SPI
-* Stream and play audio on a PC
-* Practice embedded C, networking, DMA, timers, and modular firmware design
-* Verify packet timing and RTP fields using Wireshark
-* Replace the generated test tone with external digital audio in a future version
+* Capture external audio on an STM32 using I2S and DMA
+* Stream mono PCM audio across an Ethernet network
+* Build RTP version 2 packets manually in embedded C
+* Interface an STM32 with a W5500 over SPI
+* Receive and play the stream with Python
+* Analyze packet timing, sequence numbers, and timestamps in Wireshark
+* Keep the firmware separated into clear hardware, audio, network, transport, and application modules
 
-## Current Features
+## Current Status
 
-* [x] Sine-wave test generation using a lookup table
-* [x] Signed 16-bit mono PCM generation
-* [x] 48 kHz audio stream
-* [x] DAC test output using DMA and a hardware timer
-* [x] SPI communication between the STM32 and W5500
-* [x] Static MAC and IPv4 configuration
-* [x] UDP socket initialization and packet transmission
-* [x] RTP version 2 header generation
-* [x] RTP sequence-number tracking
-* [x] RTP timestamp tracking
-* [x] Dynamic RTP payload type 96
-* [x] Big-endian PCM serialization for network transmission
-* [x] Fixed-rate transmission of 480 samples every 10 ms
-* [x] Python receiver with UDP input and audio playback
-* [x] RTP packet verification using Wireshark
-* [x] UART debug output
-* [x] Modular separation of application, audio, RTP, UDP, network, and hardware-interface code
+* [x] STM32 and W5500 SPI communication
+* [x] Static IPv4 and UDP configuration
+* [x] RTP version 2 packet generation
+* [x] Sequence number and timestamp tracking
+* [x] Signed 16-bit PCM serialization in network byte order
+* [x] PCM1808 audio capture over I2S
+* [x] Circular DMA audio input buffer
+* [x] Half-buffer and full-buffer callback handling
+* [x] Stereo input frame to mono 16-bit conversion
+* [x] Transmission of 480 audio samples per RTP packet
+* [x] Python RTP receiver and audio playback
+* [x] RTP inspection in Wireshark
+* [ ] Improve packet scheduling and reduce arrival jitter
+* [ ] Add a timestamp-based jitter buffer to the receiver
+* [ ] Add configurable network and audio settings
+* [ ] Add stream discovery and receiver subscription
 
-## Current Audio Format
+## Audio and Packet Format
 
 ```text
-Format:             Signed 16-bit linear PCM
-Channels:           1 (mono)
-Sample rate:        48,000 Hz
-Samples per packet: 480
-Packet interval:    10 ms
-RTP payload type:   96
-RTP header size:    12 bytes
-Audio payload size: 960 bytes
-UDP payload size:   972 bytes
+Transport:              RTP over UDP
+Audio format:           Signed 16-bit linear PCM
+Channels transmitted:   1 (mono)
+Sample rate:             48,000 Hz
+Samples per packet:      480
+Audio per packet:        10 ms
+RTP payload type:        96
+RTP header size:         12 bytes
+Audio payload size:      960 bytes
+UDP payload size:        972 bytes
 ```
 
-The RTP timestamp increases by 480 for each successfully transmitted packet because each packet contains 480 audio samples.
+Each successfully transmitted packet increases:
 
-The current sine source uses a 128-entry unsigned 12-bit lookup table. The network path centers each value around zero and scales it into signed 16-bit PCM. Advancing one table entry per output sample produces a 375 Hz test tone at a 48 kHz sample rate.
+```text
+RTP sequence number: +1
+RTP timestamp:       +480
+```
 
 ## System Overview
 
 ```text
-STM32 sine LUT
-      |
-      v
-Signed 16-bit PCM samples
-      |
-      v
+Analog audio input
+        |
+        v
+PCM1808 audio ADC
+        |
+        | I2S stereo data
+        v
+STM32 I2S + circular DMA
+        |
+        | half-buffer callbacks
+        v
+Stereo frame to mono PCM conversion
+        |
+        | 480 signed 16-bit samples
+        v
 RTP packet builder
-      |
-      v
+        |
+        v
 UDP socket
-      |
-      v
+        |
+        v
 W5500 over SPI
-      |
-      v
+        |
+        v
 Ethernet network
-      |
-      v
-Python PC receiver
-      |
-      v
-System audio output
+        |
+        v
+Python receiver
+        |
+        v
+Computer audio output
 ```
 
 ## Repository Structure
@@ -86,6 +100,7 @@ Core/
 ├── Inc/
 │   ├── app.h
 │   ├── audio.h
+│   ├── audio_input.h
 │   ├── audio_sine.h
 │   ├── debug_uart.h
 │   ├── network.h
@@ -97,6 +112,7 @@ Core/
     ├── main.c
     ├── app.c
     ├── audio.c
+    ├── audio_input.c
     ├── audio_sine.c
     ├── debug_uart.c
     ├── network.c
@@ -116,77 +132,79 @@ docs/
 
 ## Firmware Modules
 
-* `main.c` — STM32 startup and CubeMX-generated peripheral initialization
-* `app.c` — Top-level initialization, audio packet scheduling, and application control
-* `audio.c` — General audio initialization entry point
-* `audio_sine.c` — Sine lookup table, DAC test output, and signed PCM sample generation
+* `main.c` — CubeMX-generated startup, clock configuration, and peripheral initialization
+* `app.c` — Top-level initialization and processing of completed DMA audio buffers
+* `audio.c` — Audio subsystem initialization
+* `audio_input.c` — I2S DMA buffer, callbacks, and buffer-ready flags
+* `audio_sine.c` — Earlier sine-wave and DAC test support
 * `rtp.c` — RTP header construction, PCM serialization, sequence numbers, and timestamps
-* `udp_stream.c` — W5500 UDP socket management and destination configuration
-* `network.c` — W5500 MAC, IP address, subnet, and gateway configuration
-* `w5500_port.c` — STM32 HAL interface for W5500 SPI, chip select, and reset
+* `udp_stream.c` — W5500 UDP socket and destination configuration
+* `network.c` — W5500 memory allocation and static network configuration
+* `w5500_port.c` — STM32 HAL callbacks for W5500 SPI, chip select, and reset
 * `debug_uart.c` — UART debug output
-* `Receiver/rtp_receiver.py` — RTP validation, PCM byte-order conversion, buffering, and audio playback
+* `Receiver/rtp_receiver.py` — RTP validation, buffering, PCM conversion, and playback
 
-## RTP Packet Layout
+## Current Data Path
 
-Each UDP payload contains one RTP packet:
+The PCM1808 supplies stereo I2S frames to SPI2. DMA stores the incoming words in a circular buffer divided into two halves.
 
-```text
-Bytes 0-1       RTP version, flags, marker, and payload type
-Bytes 2-3       Sequence number
-Bytes 4-7       Timestamp
-Bytes 8-11      SSRC
-Bytes 12-971    480 signed 16-bit mono PCM samples
-```
+When either half is complete, a callback marks it ready. `App_Run()` selects the completed half, extracts the selected channel into a 480-sample mono buffer, and passes it to `RTP_SendAudio()`.
 
-PCM samples are transmitted most-significant byte first. The PC receiver converts them from network byte order to the host byte order before playback.
+The RTP module creates a 12-byte header and serializes every signed 16-bit sample most-significant byte first. The completed 972-byte packet is then sent through the W5500 UDP socket.
 
 ## Network Configuration
 
-The current implementation uses static network settings.
+The current firmware uses static network settings:
 
 ```text
-W5500 local IP:       192.168.1.150
-W5500 local UDP port: 5000
-Receiver UDP port:    8080
+W5500 IP address:       192.168.1.150
+Subnet mask:            255.255.255.0
+Gateway:                192.168.1.1
+W5500 local UDP port:   5000
+Receiver UDP port:      8080
+Current receiver IP:    192.168.1.103
 ```
 
-The destination PC address is configured in `Core/Src/udp_stream.c`:
+The transmitter address is configured in `Core/Src/network.c`.
+
+The destination computer address is configured in `Core/Src/udp_stream.c`:
 
 ```c
 static uint8_t target_ip[4] = {192, 168, 1, 103};
 static uint16_t target_port = 8080;
 ```
 
-Change `target_ip` so it matches the IPv4 address of the computer running the receiver. The STM32, W5500, and PC must be on compatible subnets.
+Change `target_ip` to the IPv4 address of the computer running the Python receiver.
 
 ## Hardware
 
 * STM32 Nucleo-F446RE
+* PCM1808 audio ADC module
 * W5500 Ethernet module
-* Ethernet-connected PC
+* Ethernet-connected computer
+* Analog audio source
 * UART connection for debug output
-* Optional oscilloscope or amplified speaker circuit for DAC testing
 
 ## Build and Run
 
-### Firmware
-
-1. Clone the repository and initialize the Wiznet submodule:
+### 1. Clone the Repository
 
 ```bash
 git clone --recurse-submodules https://github.com/ntchaps/Mono-RTP-over-UDP-Transmitter.git
+cd Mono-RTP-over-UDP-Transmitter
 ```
 
-2. Open the project in STM32CubeIDE.
-3. Check the W5500 network configuration in `Core/Src/network.c`.
-4. Set the destination PC address in `Core/Src/udp_stream.c`.
-5. Build and flash the firmware to the Nucleo-F446RE.
-6. Open the UART output if debug messages are needed.
+The `--recurse-submodules` option downloads the Wiznet ioLibrary submodule.
 
-### PC Receiver
+### 2. Configure the Firmware
 
-From the repository root:
+1. Open the project in STM32CubeIDE.
+2. Verify the W5500 settings in `Core/Src/network.c`.
+3. Set the receiver computer's IPv4 address in `Core/Src/udp_stream.c`.
+4. Confirm the PCM1808 and W5500 wiring.
+5. Build and flash the firmware.
+
+### 3. Run the Python Receiver
 
 ```bash
 cd Receiver
@@ -206,9 +224,9 @@ python -m pip install -r requirements.txt
 python rtp_receiver.py
 ```
 
-The receiver listens on all local interfaces at UDP port 8080 and plays the incoming stream as 48 kHz, mono, signed 16-bit PCM.
+The program listens on UDP port `8080` and plays the stream as 48 kHz mono signed 16-bit PCM.
 
-See [`Receiver/README.md`](Receiver/README.md) for receiver setup, command details, and troubleshooting.
+See [`Receiver/README.md`](Receiver/README.md) for receiver details and troubleshooting.
 
 ## Wireshark Verification
 
@@ -218,79 +236,62 @@ Use this display filter:
 udp.port == 8080
 ```
 
-If Wireshark identifies the packets only as UDP, select a packet and use:
+If Wireshark displays the traffic only as UDP, select a packet and use:
 
 ```text
 Analyze -> Decode As -> RTP
 ```
 
-A correct stream should show approximately:
+Expected values:
 
 ```text
-Packet interval:      10 ms
-Sequence increment:   1
-Timestamp increment:  480
-RTP payload type:     96
-RTP payload length:   960 bytes
-UDP payload length:   972 bytes
+RTP version:            2
+Payload type:           96
+Sequence increment:     1
+Timestamp increment:    480
+PCM payload size:       960 bytes
+RTP packet size:        972 bytes
+Target packet rate:     100 packets per second
+Target packet interval: 10 ms
 ```
 
-## Troubleshooting
+## Current Limitations
 
-### No packets arrive
+* The transmitted channel is selected by taking one 16-bit word from each incoming I2S frame
+* The exact PCM1808 word alignment still needs final validation against the captured waveform
+* Packet transmission is triggered from the main application loop after DMA callbacks rather than by a dedicated transmit scheduler
+* UDP packets can arrive with timing variation even though each packet represents 10 ms of audio
+* The receiver does not reorder packets or replace missing audio
+* The receiver does not use RTP timestamps to control playback timing
+* Network addresses and audio settings are currently fixed in source code
 
-* Confirm the destination IP in `udp_stream.c` matches the PC
-* Confirm the PC firewall allows inbound UDP traffic on port 8080
-* Confirm the Ethernet link is active
-* Confirm the PC and W5500 are on compatible subnets
-* Check the UART output for W5500 or send errors
+## Next Steps
 
-### Wireshark shows UDP instead of RTP
+* Validate PCM1808 sample alignment and channel selection
+* Improve packet timing with a dedicated timer, DMA-driven pipeline, or double-buffered transmit stage
+* Add receiver statistics for packet rate, loss, and arrival interval
+* Add a proper jitter buffer with stable audio-block output
+* Insert silence or concealment data for missing packets
+* Add configurable destination, ports, sample rate, and output device
+* Add simple transmitter discovery and receiver subscription
 
-Use **Analyze -> Decode As -> RTP** for UDP port 8080.
-
-### Audio has clicks or buzzing
-
-* Confirm both transmitter and receiver use 48,000 Hz
-* Confirm the transmitter sends 480 samples every 10 ms
-* Watch the receiver for sequence-gap or queue-full messages
-* Disable audio enhancements on the selected Windows playback device
-* Increase the receiver prebuffer if packet arrival jitter is causing underruns
-* Confirm no second receiver process is already using UDP port 8080
-
-### Socket bind error on Windows
-
-Only one process can normally bind to UDP port 8080. Stop the existing receiver process or close the terminal that is still running it.
-
-## Planned Improvements
-
-* [ ] Replace the sine-wave source with external audio input
-* [ ] Add I2S audio capture
-* [ ] Add timer- or DMA-driven double buffering for tighter packet timing
-* [ ] Add a receiver jitter buffer with timestamp-based playout
-* [ ] Add stream discovery and receiver subscription
-* [ ] Make destination address, ports, sample rate, and payload format configurable
-* [ ] Support higher-resolution audio formats
-* [ ] Update the architecture document to reflect the completed RTP receiver path
-
-## Technologies and Skills
+## Skills Demonstrated
 
 * Embedded C
 * Python
 * STM32 HAL
 * STM32CubeIDE and STM32CubeMX
-* SPI
-* UART
-* DAC and DMA
-* Hardware timers
-* UDP sockets
-* RTP packet formatting
-* PCM audio representation
-* W5500 Ethernet controller
+* I2S audio capture
+* DMA and interrupt callbacks
+* SPI peripheral communication
+* W5500 Ethernet control
+* UDP socket programming
+* RTP packet construction
+* PCM audio representation and byte order
+* UART debugging
 * Wireshark packet analysis
-* Real-time audio buffering
-* Modular firmware architecture
+* Real-time buffering and modular firmware design
 
 ## Documentation
 
-See [`docs/architecture.md`](docs/architecture.md) for the firmware architecture and module responsibilities.
+See [`docs/architecture.md`](docs/architecture.md) for the module layout, ownership boundaries, and complete data flow.

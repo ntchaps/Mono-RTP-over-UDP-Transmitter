@@ -1,10 +1,10 @@
-# RTP Audio Receiver
+# Python RTP Audio Receiver
 
-This folder contains the Python receiver for the Mono RTP over UDP project.
+This folder contains the PC receiver for the Mono RTP over UDP project.
 
-The receiver listens for RTP packets sent by the STM32, extracts the PCM audio payload, converts the samples from network byte order, and plays the audio through the computer's default output device.
+The program listens for RTP packets from the STM32 transmitter, validates the RTP header, extracts the signed 16-bit PCM payload, converts the samples from network byte order, buffers several packets, and plays the stream through the computer's default audio output device.
 
-## Current Audio Format
+## Audio Format
 
 ```text
 Transport:           RTP over UDP
@@ -14,7 +14,7 @@ Audio format:        Signed 16-bit PCM
 Channels:            1 (mono)
 Sample rate:         48,000 Hz
 Samples per packet:  480
-Packet interval:     10 ms
+Packet duration:     10 ms
 PCM payload size:    960 bytes
 RTP packet size:     972 bytes
 ```
@@ -26,12 +26,6 @@ Each packet contains:
 960-byte PCM audio payload
 ```
 
-The 960-byte payload represents 480 signed 16-bit samples:
-
-```text
-480 samples × 2 bytes per sample = 960 bytes
-```
-
 ## Files
 
 ```text
@@ -41,52 +35,75 @@ Receiver/
 └── rtp_receiver.py
 ```
 
-* `rtp_receiver.py` — Receives, validates, buffers, and plays the RTP audio
-* `requirements.txt` — Lists the Python package required by the receiver
+* `rtp_receiver.py` — Receives, validates, buffers, converts, and plays the RTP audio
+* `requirements.txt` — Lists the required Python package
 
 ## Requirements
 
 * Python 3
 * `sounddevice`
-* A working audio output device
-* The STM32 transmitter configured to send packets to the PC's IPv4 address
+* A working computer audio output device
+* The STM32 configured to send packets to the computer's IPv4 address
+* The transmitter and computer connected to compatible IPv4 networks
 
-Install the required package with:
+## Setup
+
+Open a terminal in the repository root and enter:
+
+```bash
+cd Receiver
+python -m venv .venv
+```
+
+Activate the virtual environment on Windows PowerShell:
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+Install the dependency:
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-## Running the Receiver
-
-Open a terminal inside the `Receiver` folder:
-
-```bash
-cd Receiver
-```
-
-Run the receiver:
+## Run the Receiver
 
 ```bash
 python rtp_receiver.py
 ```
 
-The program listens on UDP port 8080.
+The program binds to:
 
-Stop it with:
+```python
+UDP_IP = "0.0.0.0"
+UDP_PORT = 8080
+```
+
+`0.0.0.0` allows the receiver to accept packets through any local IPv4 network interface.
+
+The STM32 must send to the computer's actual IPv4 address, not to `0.0.0.0`.
+
+On Windows, find the address with:
+
+```powershell
+ipconfig
+```
+
+Use the IPv4 address of the Ethernet adapter connected to the same network as the W5500.
+
+Stop the receiver with:
 
 ```text
 Ctrl+C
 ```
 
-## How the Receiver Works
+## How It Works
 
-The receiver uses two main threads:
+The receiver uses two execution paths:
 
-1. A network thread receives and processes RTP packets.
-2. An audio thread writes the decoded PCM data to the output device.
-
-A queue passes audio data between the two threads.
+1. A background network thread receives and validates RTP packets.
+2. The main thread removes PCM blocks from a queue and writes them to the audio device.
 
 ```text
 STM32 transmitter
@@ -99,44 +116,29 @@ UDP socket
 RTP header validation
        |
        v
+Sequence tracking
+       |
+       v
 PCM payload extraction
        |
        v
 Big-endian to host-endian conversion
        |
        v
-Audio queue
+Thread-safe audio queue
+       |
+       v
+Startup prebuffer
        |
        v
 sounddevice output stream
 ```
 
-Separating packet reception from playback helps prevent network timing variations from directly interrupting the audio output.
+Separating reception from playback prevents every small packet-arrival variation from immediately blocking the audio output.
 
-## UDP Socket
+## RTP Validation
 
-The receiver binds to:
-
-```python
-UDP_IP = "0.0.0.0"
-UDP_PORT = 8080
-```
-
-Using `0.0.0.0` allows the program to receive packets through any IPv4 network interface on the PC.
-
-The STM32 must send packets to the PC's actual IPv4 address, not to `0.0.0.0`.
-
-On Windows, find the PC's IPv4 address with:
-
-```powershell
-ipconfig
-```
-
-Use the address of the Ethernet adapter connected to the W5500 network.
-
-## RTP Header Processing
-
-The receiver expects the standard 12-byte RTP header.
+The receiver expects a standard 12-byte RTP header:
 
 ```text
 Byte 0       RTP version and flags
@@ -147,103 +149,88 @@ Bytes 8-11   SSRC
 Bytes 12+    PCM audio payload
 ```
 
-The receiver checks:
+It checks:
 
+* The packet is at least 12 bytes long
 * RTP version is 2
 * Payload type is 96
-* Packet length is at least 12 bytes
-* PCM payload contains an even number of bytes
+* The PCM payload contains an even number of bytes
 
 Packets that do not match the expected format are ignored.
 
-## Sequence Numbers
+## Sequence Numbers and Timestamps
 
-The RTP sequence number increases by one for each packet.
-
-The receiver compares the current sequence number with the expected value. This makes it possible to detect missing or out-of-order packets.
-
-Example:
+The sequence number should increase by one for every packet.
 
 ```text
-Expected sequence: 120
-Received sequence: 122
+Packet 1 sequence: 100
+Packet 2 sequence: 101
+Packet 3 sequence: 102
 ```
 
-This indicates that packet 121 was lost or arrived out of order.
+A gap indicates a lost or out-of-order packet:
 
-A missing packet currently creates a gap in the audio because the receiver does not yet insert replacement samples.
+```text
+Sequence gap: expected 101, received 102
+```
 
-## RTP Timestamps
-
-Each packet contains 480 samples, so the timestamp should increase by 480:
+The RTP timestamp should increase by 480 because each packet contains 480 audio samples:
 
 ```text
 Packet 1 timestamp: 0
 Packet 2 timestamp: 480
 Packet 3 timestamp: 960
-Packet 4 timestamp: 1440
 ```
 
-At 48,000 samples per second:
-
-```text
-480 / 48000 = 0.010 seconds
-```
-
-This means each RTP packet represents 10 ms of audio.
-
-The current receiver parses the timestamp for debugging but does not yet use it to schedule playback or reorder packets.
+The current receiver prints sequence and timestamp information but does not reorder packets or schedule playback from the timestamps.
 
 ## PCM Byte Order
 
-The STM32 sends each signed 16-bit PCM sample in big-endian network byte order.
-
-Example sample:
+The STM32 transmits every signed 16-bit sample in big-endian network byte order.
 
 ```text
-PCM value: 0x1234
-Network bytes: 0x12 0x34
+PCM value:      0x1234
+Network bytes:  0x12 0x34
 ```
 
-Most Windows PCs use little-endian byte order, so the receiver swaps the two bytes before playback.
+Most Windows computers are little-endian, so the receiver swaps the bytes before playback.
 
-Without this conversion, the sample values would be interpreted incorrectly and the audio would sound distorted or noisy.
+Without this conversion, the sample values are interpreted incorrectly and the stream sounds distorted or noisy.
 
-## Audio Queue
+## Buffering
 
-Received PCM payloads are placed into a thread-safe queue.
+The receiver places decoded PCM blocks into a thread-safe queue.
 
 ```text
 Network thread -> audio queue -> playback thread
 ```
 
-The receiver buffers several packets before playback begins. This creates a small amount of protection against UDP packet-arrival jitter.
-
-For example, five 10 ms packets provide approximately:
+The current program waits for five packets before playback begins:
 
 ```text
-5 × 10 ms = 50 ms
+5 packets × 10 ms = approximately 50 ms
 ```
 
-of buffered audio.
+This startup prebuffer provides limited protection against packet-arrival jitter. A larger prebuffer increases delay, while a smaller prebuffer makes playback more sensitive to timing variation.
 
-A larger buffer can make playback more stable, but it also increases delay.
+The current design is a packet queue, not a complete jitter buffer. After playback begins, each packet is written as soon as it is removed from the queue.
 
 ## Audio Playback
 
-The receiver opens a mono signed 16-bit output stream at 48 kHz:
+The receiver opens a raw output stream with settings that match the transmitter:
 
 ```python
-sd.RawOutputStream(
-    samplerate=48000,
-    channels=1,
-    dtype="int16"
-)
+sd.RawOutputStream(samplerate=48000, channels=1, dtype="int16")
 ```
 
-The playback settings must match the transmitter.
+The transmitter and receiver must agree on:
 
-If the STM32 sends 48 kHz audio but the receiver plays it at 8 kHz, the tone will play at the wrong speed and pitch.
+```text
+Sample rate:   48,000 Hz
+Channels:      1
+Sample type:   signed 16-bit PCM
+Byte order:    converted to host order before playback
+```
 
 ## Wireshark Verification
 
@@ -253,22 +240,23 @@ Use this display filter:
 udp.port == 8080
 ```
 
-If Wireshark displays the packets only as UDP:
+If Wireshark identifies the packets only as UDP, select a packet and use:
 
 ```text
 Analyze -> Decode As -> RTP
 ```
 
-Expected packet values:
+Expected values:
 
 ```text
-RTP version:          2
-Payload type:         96
-Sequence increment:   1
-Timestamp increment:  480
-Packet interval:      approximately 10 ms
-PCM payload size:     960 bytes
-RTP packet size:      972 bytes
+RTP version:            2
+Payload type:           96
+Sequence increment:     1
+Timestamp increment:    480
+PCM payload size:       960 bytes
+RTP packet size:        972 bytes
+Target packet interval: 10 ms
+Target packet rate:     100 packets per second
 ```
 
 ## Troubleshooting
@@ -279,88 +267,100 @@ RTP packet size:      972 bytes
 OSError: [WinError 10048]
 ```
 
-Another program is already using UDP port 8080.
+Another process is already using UDP port 8080. This is commonly another copy of the receiver.
 
-This usually means another copy of the receiver is still running.
-
-Find the process with:
+Find the process on Windows with:
 
 ```powershell
 netstat -ano | findstr :8080
 ```
 
-Then stop the existing process or close its terminal.
+Then stop that process or close the terminal running it.
 
 ### No Packets Are Received
 
 Check that:
 
-* The destination IP in the STM32 firmware matches the PC
-* The transmitter and PC are on compatible subnets
-* The Ethernet connection is active
-* Windows Firewall allows UDP port 8080
-* The STM32 is successfully initializing the W5500
-* Wireshark shows traffic on port 8080
+* The destination IP in `Core/Src/udp_stream.c` matches the computer
+* The W5500 and computer are on compatible subnets
+* The Ethernet link is active
+* Windows Firewall allows inbound UDP traffic on port 8080
+* The W5500 initializes successfully
+* Wireshark shows packets on UDP port 8080
 
 ### Packets Arrive but No Audio Plays
 
 Check that:
 
-* The computer has a working default output device
-* The selected device supports 48 kHz playback
-* The receiver is using mono signed 16-bit audio
-* The RTP payload contains 960 audio bytes
-* The receiver is not rejecting the payload type
+* The computer has a working default audio output device
+* The device supports 48 kHz playback
+* The receiver is not rejecting the RTP payload type
+* Each packet contains a 960-byte audio payload
+* The Python terminal is not reporting an exception
 
-List available audio devices with:
+List available devices with:
 
 ```bash
 python -c "import sounddevice as sd; print(sd.query_devices())"
 ```
 
-### Buzzing or Clicking
+### Audio Is Too Fast, Slow, or the Pitch Is Wrong
+
+Confirm that both sides use 48,000 samples per second.
+
+Playing 48 kHz samples at a different rate changes both speed and pitch.
+
+### Audio Clicks, Buzzes, or Drops Out
 
 Possible causes include:
 
 * Packet loss
-* Inconsistent packet timing
-* Receiver buffer underruns
+* Irregular packet arrival timing
+* Queue underruns or overflows
+* Incorrect PCM1808 sample alignment on the STM32
 * Incorrect sample rate
 * Incorrect PCM byte order
 * Windows audio enhancements
-* Another application interrupting audio playback
+* Excessive printing for every received packet
+* Other applications interrupting audio playback
 
-Check the terminal for sequence-gap or queue-full messages.
-
-Also verify that the transmitter sends:
-
-```text
-480 samples every 10 ms
-```
-
-and that the receiver plays the samples at:
+Check the terminal for:
 
 ```text
-48,000 samples per second
+Sequence gap
+Audio queue full; dropping packet
 ```
+
+Also verify that the stream averages approximately 100 packets per second and that the RTP timestamp increases by 480 each packet.
+
+### Reduce Receiver Overhead
+
+The current script prints one detailed line for every packet. At approximately 100 packets per second, this can add unnecessary terminal and scheduling overhead.
+
+For cleaner real-time playback, packet-by-packet printing can be disabled or replaced with a once-per-second statistics report.
 
 ## Current Limitations
 
-* Only supports mono signed 16-bit PCM
-* Uses a fixed 48 kHz sample rate
-* Uses RTP payload type 96
+* Fixed UDP port 8080
+* Fixed 48 kHz sample rate
+* Fixed mono signed 16-bit PCM format
+* Fixed RTP payload type 96
+* Uses the default audio output device
 * Does not reorder packets
-* Does not replace missing packets
-* Does not use RTP timestamps for playback timing
+* Does not insert silence for missing packets
+* Does not use RTP timestamps for playback scheduling
+* Uses a basic FIFO queue instead of a timestamp-based jitter buffer
+* Prints every received packet
 * Does not automatically discover the transmitter
-* Uses the computer's default audio output device
 
 ## Planned Improvements
 
-* [ ] Add timestamp-based packet ordering
-* [ ] Add silence insertion for missing packets
-* [ ] Add a proper jitter buffer
-* [ ] Allow audio-device selection
-* [ ] Allow sample rate and port configuration
-* [ ] Display packet-loss statistics
-* [ ] Support transmitter discovery and subscription
+* Add packet-rate, packet-loss, and jitter statistics
+* Replace per-packet logging with periodic summaries
+* Add timestamp-based ordering and playout
+* Insert silence or concealment audio for missing packets
+* Add a configurable jitter buffer
+* Allow output-device selection
+* Allow the UDP port, payload type, and sample rate to be configured
+* Save optional WAV captures for debugging
+* Add transmitter discovery and subscription
