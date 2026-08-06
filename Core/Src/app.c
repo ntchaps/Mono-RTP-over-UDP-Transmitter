@@ -8,7 +8,6 @@
 #include "main.h"
 #include "app.h"
 #include "audio.h"
-#include "audio_sine.h"
 #include "rtp.h"
 #include "network.h"
 #include "udp_stream.h" 
@@ -59,28 +58,34 @@ static void App_ConvertI2SToMono16(const uint16_t *input, int16_t *output)
 void App_Init(void)
 {
     /*
+     * Configure the W5500 network settings.
+     */
+    Debug_Printf("Network init start\r\n");
+    Network_Init();
+    Debug_Printf("Network init done\r\n"); 
+    /*
+     * Open and configure the UDP socket.
+     */
+    Debug_Printf("UDP init\r\n");
+    UDP_Stream_Init();
+    Debug_Printf("UDP init done\r\n"); 
+
+    /*
+     * Initialize the RTP sequence number, timestamp, and SSRC.
+     */
+    Debug_Printf("RTP init\r\n");
+    RTP_Init();
+    Debug_Printf("RTP init done\r\n"); 
+   
+    /*
      * Initialize the audio system.
      *
      * Check audio.c to determine whether Audio_Init() already calls
      * Audio_Input_Init(). Do not call Audio_Input_Init() twice.
      */
+    Debug_Printf("Audio init\r\n");
     Audio_Init();
-
-    /*
-     * Configure the W5500 network settings.
-     */
-    Network_Init();
-    
-    /*
-     * Open and configure the UDP socket.
-     */
-    UDP_Stream_Init();
-
-    /*
-     * Initialize the RTP sequence number, timestamp, and SSRC.
-     */
-    RTP_Init();
-   
+    Debug_Printf("Audio init done\r\n"); 
 }
 
 void App_Run(void)

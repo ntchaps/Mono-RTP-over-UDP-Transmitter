@@ -17,8 +17,13 @@ void Network_Init(void)
 {
     W5500_Port_Init();
 
+    // PRINTOUT
+    uint8_t version = getVERSIONR();
+    Debug_Printf("W5500 VERSIONR = 0x%02X\r\n", version);
+    
     // Allocate 2KB buffer size for each of the 8 sockets
     uint8_t buf_size[] = {2, 2, 2, 2, 2, 2, 2, 2};
+    
     wizchip_init(buf_size, buf_size); 
     // Define Network Parameters
     wiz_NetInfo net_info = {

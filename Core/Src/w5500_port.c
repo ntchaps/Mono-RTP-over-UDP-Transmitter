@@ -9,7 +9,6 @@
 #include "wizchip_conf.h"
 
 extern SPI_HandleTypeDef hspi1;
-
 // Define CS pin control wrappers
 void W5500_Select(void) {
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);

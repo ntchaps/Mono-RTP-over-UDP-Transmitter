@@ -39,7 +39,7 @@ const uint16_t *Audio_Input_GetFirstHalf(void)
 
 const uint16_t *Audio_Input_GetSecondHalf(void)
 {
-    return &audio_input_buffer[AUDIO_INPUT_BUFFER_SIZE];
+    return &audio_input_buffer[AUDIO_INPUT_HALF_SIZE];
 }
 
 void HAL_I2S_RxHalfCpltCallback(I2S_HandleTypeDef *hi2s)
