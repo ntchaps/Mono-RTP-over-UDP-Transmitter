@@ -247,9 +247,9 @@ docs/
 The current firmware uses static network configuration.
 
 ```text
-W5500 IP address:       192.168.1.150
+W5500 IP address:       192.168.4.150
 Subnet mask:            255.255.255.0
-Gateway:                192.168.1.1
+Gateway:                192.168.4.1
 W5500 local UDP port:   5000
 Receiver UDP port:      8080
 ```
