@@ -64,71 +64,77 @@ wav_file.setframerate(SAMPLE_RATE)
 def receive_audio():
     global expected_sequence, received_packets, sequence_gaps
     global last_packet_time, maximum_packet_interval
+    global running
+
+    running = True
 
     # Packet receiving loop
-    while True:
-        # receive from port 8080
-        packet, sender = sock.recvfrom(2048)
-
-        packet_time = time.perf_counter()
-
-        if last_packet_time is not None:
-            packet_interval = packet_time - last_packet_time
-            maximum_packet_interval = max(maximum_packet_interval, packet_interval)
-
-        last_packet_time = packet_time
-
-        # Error if packet length < 12
-        if len(packet) < RTP_HEADER_SIZE:
-            print("Packet is too short to be RTP")
-            continue
-
-        # Struct describes RTP packet.
-        first_byte, second_byte, sequence, timestamp, ssrc = struct.unpack(
-            "!BBHII",
-            packet[:12]
-        )
-
-        version = first_byte >> 6
-        payload_type = second_byte & 0x7F
-        audio_payload = packet[RTP_HEADER_SIZE:]
-
-        ### Error Messages
-        if version != 2:
-            print(f"Ignoring unsupported RTP version {version}")
-            continue
-
-        if payload_type != 96:
-            print(f"Ignoring unexpected payload type {payload_type}")
-            continue
-
-        if expected_sequence is not None and sequence != expected_sequence:
-            sequence_gaps += 1
-
-        expected_sequence = (sequence + 1) & 0xFFFF
-        received_packets += 1
-
+    while running:
         try:
-            # Convert RTP samples from big to little endian
-            pcm_audio = convert_network_pcm(audio_payload)
+            # receive from port 8080
+            packet, sender = sock.recvfrom(2048)
 
-            #wav_file.writeframesraw(pcm_audio)
-        except ValueError as error:
-            print(f"Ignoring invalid payload: {error}")
-            continue
+            packet_time = time.perf_counter()
 
-        try:
-            audio_queue.put_nowait(pcm_audio)
-        except queue.Full:
+            if last_packet_time is not None:
+                packet_interval = packet_time - last_packet_time
+                maximum_packet_interval = max(maximum_packet_interval, packet_interval)
+
+            last_packet_time = packet_time
+
+            # Error if packet length < 12
+            if len(packet) < RTP_HEADER_SIZE:
+                print("Packet is too short to be RTP")
+                continue
+
+            # Struct describes RTP packet.
+            first_byte, second_byte, sequence, timestamp, ssrc = struct.unpack(
+                "!BBHII",
+                packet[:12]
+            )
+
+            version = first_byte >> 6
+            payload_type = second_byte & 0x7F
+            audio_payload = packet[RTP_HEADER_SIZE:]
+
+            ### Error Messages
+            if version != 2:
+                print(f"Ignoring unsupported RTP version {version}")
+                continue
+
+            if payload_type != 96:
+                print(f"Ignoring unexpected payload type {payload_type}")
+                continue
+
+            if expected_sequence is not None and sequence != expected_sequence:
+                sequence_gaps += 1
+
+            expected_sequence = (sequence + 1) & 0xFFFF
+            received_packets += 1
+
             try:
-                audio_queue.get_nowait()
-            except queue.Empty:
-                pass
-            
+                # Convert RTP samples from big to little endian
+                pcm_audio = convert_network_pcm(audio_payload)
+
+                wav_file.writeframesraw(pcm_audio)
+            except ValueError as error:
+                print(f"Ignoring invalid payload: {error}")
+                continue
+
             try:
                 audio_queue.put_nowait(pcm_audio)
             except queue.Full:
-                pass
+                try:
+                    audio_queue.get_nowait()
+                except queue.Empty:
+                    pass
+            
+                try:
+                    audio_queue.put_nowait(pcm_audio)
+                except queue.Full:
+                    pass
+        except OSError:
+            break
 
 receiver_thread = threading.Thread(target=receive_audio, daemon=True)
 receiver_thread.start()
@@ -196,7 +202,15 @@ except KeyboardInterrupt:
     print("\nStopping RTP receiver")
 
 finally:
+    running = False
     stream.stop()
     stream.close()
     wav_file.close()
     sock.close()
+
+    print(f"WAV file saved: {WAV_FILENAME}")
+    print(
+        f"Format: {SAMPLE_RATE} Hz, "
+        f"{CHANNELS} channel, "
+        f"{SAMPLE_WIDTH_BYTES * 8}-bit PCM"
+    )

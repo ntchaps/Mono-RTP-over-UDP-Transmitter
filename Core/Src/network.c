@@ -28,9 +28,9 @@ void Network_Init(void)
     // Define Network Parameters
     wiz_NetInfo net_info = {
         .mac = {0x00, 0x08, 0xDC, 0x11, 0x22, 0x33},
-        .ip  = {192, 168, 1, 150},
+        .ip  = {192, 168, 4, 150},
         .sn  = {255, 255, 255, 0},
-        .gw  = {192, 168, 1, 1},
+        .gw  = {192, 168, 4, 1},
         .dhcp = NETINFO_STATIC
     };
 
